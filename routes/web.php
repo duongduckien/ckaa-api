@@ -18,11 +18,3 @@ Route::get('/', function () {
 Route::get('/test', function () {
     return "test-get";
 });
-
-Route::post('/test', function () {
-    return "test-post";
-});
-
-Route::put('/test', function () {
-    return "test-put";
-});
