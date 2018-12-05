@@ -8,7 +8,7 @@ use App\Http\Requests\UserRequest;
 class UserController extends Controller
 {
 
-    public function create(UserRequest $request) {
+    public function createUser(UserRequest $request) {
 
         $user = [
             "username" => $request->get('username'),
