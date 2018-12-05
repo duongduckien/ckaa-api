@@ -25,4 +25,4 @@ Route::post('authorize', 'AuthController@authorize');
 /*
  * Users
  */
-Route::post('users', 'UserController@createUser');
+Route::post('users', 'UserController@create');

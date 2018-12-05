@@ -157,9 +157,10 @@ trait ApiResponse
      */
     public function respondCreated(array $array, $message = 'Item successfully created')
     {
-        $array['message'] = $message;
+        $arr['message'] = $message;
+        $arr['data'] = $array;
 
-        return $this->setStatusCode(IlluminateResponse::HTTP_CREATED)->respondWithArray($array);
+        return $this->setStatusCode(IlluminateResponse::HTTP_CREATED)->respondWithArray($arr);
     }
 
     /**

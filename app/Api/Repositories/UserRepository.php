@@ -15,9 +15,10 @@ class UserRepository implements UserRepositoryInterface
         $this->user = $user;
     }
 
-    public function create()
+    public function createUser($user)
     {
-
+        $result = $this->user->create($user);
+        return $result;
     }
 
 }
