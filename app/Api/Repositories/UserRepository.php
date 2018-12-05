@@ -21,4 +21,25 @@ class UserRepository implements UserRepositoryInterface
         return $result;
     }
 
+    public function removeUser($id)
+    {
+        $result = $this->user->whereId($id)->update([
+           'deleted' => 1
+        ]);
+        return $result;
+    }
+
+    public function getUserById($id)
+    {
+        $user = $this->user->where('id', $id)->first();
+        return $user;
+    }
+
+    public function updateUserWhereId($id, $data)
+    {
+        $this->user->where('id', $id)->update([
+            'deleted' => 1
+        ]);
+    }
+
 }

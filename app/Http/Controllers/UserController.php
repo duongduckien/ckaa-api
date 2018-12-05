@@ -41,4 +41,23 @@ class UserController extends ApiController
 
     }
 
+    public function remove($id)
+    {
+
+        if ($this->userRepository->getUserById($id)) {
+
+            try {
+                $this->userRepository->removeUser($id);
+                return $this->respondSuccess('User deleted successfully!');
+            }
+            catch (\Exception $e) {
+                return $this->respondNotFound("Something went wrong!");
+            }
+
+        }
+
+        return $this->respondNotFound("User doesn't exist!");
+
+    }
+
 }

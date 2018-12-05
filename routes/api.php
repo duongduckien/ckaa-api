@@ -26,3 +26,4 @@ Route::post('authorize', 'AuthController@authorize');
  * Users
  */
 Route::post('users', 'UserController@create');
+Route::post('users/{id}', 'UserController@remove');
