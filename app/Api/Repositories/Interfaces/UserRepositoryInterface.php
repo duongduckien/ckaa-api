@@ -11,4 +11,6 @@ interface UserRepositoryInterface
     public function getUserById($id);
 
     public function updateUserWhereId($id, $data);
+
+    public function getUsers();
 }

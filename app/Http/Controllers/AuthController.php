@@ -2,18 +2,20 @@
 
 namespace App\Http\Controllers;
 
+use Illuminate\Http\Request;
 use App\Http\Controllers\ApiController;
 use App\Http\Requests\AuthorizeRequest;
 use App\Api\Models\User;
-use Auth;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Validator;
 use JWTAuth;
-use League\Flysystem\Exception;
 use Tymon\JWTAuth\Exceptions\JWTException;
-use Illuminate\Http\Request;
+use League\Flysystem\Exception;
 use Illuminate\Cache\RateLimiter;
 use Illuminate\Foundation\Auth\ThrottlesLogins;
 
-class AuthController extends ApiController {
+class AuthController extends ApiController
+{
 
     use ThrottlesLogins;
 
@@ -31,8 +33,8 @@ class AuthController extends ApiController {
      */
     protected $maxLoginAttempts = 2;
 
-    public function __construct() {
-
+    public function __construct()
+    {
         $this->middleware('jwt.auth', ['only' => ['currentUser']]);
 
         $this->lockoutTime = config('api.login.lockout_time', $this->lockoutTime);
@@ -40,13 +42,10 @@ class AuthController extends ApiController {
         $this->maxLoginAttempts = config('api.login.max_login_attemps', $this->maxLoginAttempts);
 
         parent::__construct();
-
     }
 
-    public function authorize(AuthorizeRequest $request, User $user) {
-
-        die('ddadasdasdas');
-
+    public function authenticate(AuthorizeRequest $request, User $user)
+    {
         // grab credentials from the request
 
         $credentials = $user->rewriteCredentials($request->only($this->loginUsername(), 'password'));
@@ -85,12 +84,336 @@ class AuthController extends ApiController {
         }
 
         // all good so return the token
+
         return $this->sendResponse(compact('token'));
+    }
+
+    public function authorizeAccountFacebook(AuthorizeFacebookRequest $request, SocialNetworksRepository $social, User $user) {
+
+        $fb = $request->only('token', 'email');
+
+        $facebook = new Facebook([
+            'app_id' => env('FACEBOOK_APP_ID'),
+            'app_secret' => env('FACEBOOK_APP_SECRET'),
+        ]);
+
+        try {
+
+            $response = $facebook->get('/me?fields=id,name,email', $fb['token']);
+
+            // Get profile information
+            $profile = $response->getGraphUser();
+
+            if (!isset($profile['email'])) {
+                $profile['email'] = $fb['email'];
+            }
+
+            if (!$profile || !isset($profile['id'])) {
+                return $this->respondInternalError('Login failed.');
+            }
+
+            // If social account is existed
+            if ($social->checkAccountExist($profile['id'], 'facebook')) {
+
+                // Get user id
+                $userSocialInfo = $social->getUserSocialInfo($profile['id']);
+
+                if ($userSocialInfo) {
+
+                    $userInfo = $social->getUserInfo($userSocialInfo->user_id);
+
+                    if ($userInfo) {
+
+                        Auth::login($userInfo);
+
+                        if (!Auth::user()) {
+                            return $this->respondInternalError('Login failed.');
+                        }
+
+                        $user = Auth::user();
+
+                        try {
+
+                            $token = JWTAuth::customClaims(['verified' => $user->verified])->fromUser($user);
+
+                        }catch (JWTException $e) {
+
+                            return $this->respondInternalError('Login failed.');
+
+                        }
+
+                        return $this->respondCreated(compact('token'), 'Login success.');
+
+                    }
+
+                }
+
+            }else {
+
+                $email = $profile['email'];
+
+                // Check email in users table
+                if ($social->checkEmailOfUser($email)) {
+
+                    $userInfo = $social->getUserInfoWhereEmail($email);
+
+                    if ($userInfo) {
+
+                        if (Auth::login($userInfo)) {
+
+                            // Store user info to social networks table
+                            $fieldsSocial = array(
+                                'user_id' => $userInfo->id,
+                                'social_id' => $profile['id'],
+                                'type' => 'facebook'
+                            );
+
+                            $social->storeAccountSocial($fieldsSocial);
+
+                            $user = Auth::user();
+
+                            try {
+
+                                $token = JWTAuth::customClaims(['verified' => $user->verified])->fromUser($user);
+
+                            }catch (JWTException $e) {
+
+                                return $this->respondInternalError('Login failed.');
+
+                            }
+
+                            return $this->respondCreated(compact('token'), 'Login success.');
+
+                        }
+
+                    }
+
+                    return $this->respondInternalError('Login failed.');
+
+                }else {
+
+                    $fields = array(
+                        'name' => $profile['name'],
+                        'display_name' => $profile['name'],
+                        'email' => $profile['email'],
+                        'password' => ''
+                    );
+
+                    // Save to users table
+                    $resultUsers = $user->storeSocial($fields);
+
+                    if ($resultUsers) {
+
+                        $credentials = $user->rewriteCredentialsSocial($fields);
+
+                        Auth::attempt($credentials);
+
+                        if (!Auth::user()) {
+                            return $this->respondInternalError('Login failed.');
+                        }
+
+                        $user = Auth::user();
+
+                        $fieldsSocial = array(
+                            'user_id' => $user->id,
+                            'social_id' => $profile['id'],
+                            'type' => 'facebook'
+                        );
+
+                        // Save to social networks table
+                        if (!$social->storeAccountSocial($fieldsSocial)) {
+                            return $this->respondInternalError('Login failed.');
+                        }
+
+                        try {
+
+                            $token = JWTAuth::customClaims(['verified' => $user->verified])->fromUser($user);
+
+                        }catch (JWTException $e) {
+
+                            return $this->respondInternalError('Login failed.');
+
+                        }
+
+                        return $this->respondCreated(compact('token'), 'Login success.');
+
+                    }
+
+                }
+
+            }
+
+        }catch (\Exception $e) {
+            return $this->respondInternalError('Login failed.');
+        }
 
     }
 
-    public function create(CreateUserAccountRequest $request, User $user) {
+    public function authorizeAccountGoogle(AuthorizeGoogleRequest $request, SocialNetworksRepository $social, User $user) {
 
+        $google = $request->only('token');
+
+        try {
+
+            $client = new \Google_Client(['client_id' => env('GOOGLE_CLIENT_ID')]);
+
+            $payload = $client->verifyIdToken($google['token']);
+
+            if (!$payload) {
+
+                $client = new \Google_Client(['client_id' => env('GOOGLE_CLIENT_ID_IOS')]);
+
+                $payload = $client->verifyIdToken($google['token']);
+
+            }
+
+            if (!$payload || !isset($payload['sub'])) {
+                return $this->respondInternalError('Login failed.');
+            }
+
+            // If social account is existed
+            if ($social->checkAccountExist($payload['sub'], 'google')) {
+
+                // Get user id
+                $userSocialInfo = $social->getUserSocialInfo($payload['sub']);
+
+                if ($userSocialInfo) {
+
+                    $userInfo = $social->getUserInfo($userSocialInfo->user_id);
+
+                    if ($userInfo) {
+
+                        $userInfo = $social->getUserInfoWhereEmail($userInfo->email);
+
+                        Auth::login($userInfo);
+
+                        if (!Auth::user()) {
+                            return $this->respondInternalError('Login failed.');
+                        }
+
+                        $user = Auth::user();
+
+                        try {
+
+                            $token = JWTAuth::customClaims(['verified' => $user->verified])->fromUser($user);
+
+                        }catch (JWTException $e) {
+
+                            return $this->respondInternalError('Login failed.');
+
+                        }
+
+                        return $this->respondCreated(compact('token'), 'Login success.');
+
+                    }
+
+                }
+
+            }else {
+
+                $email = $payload['email'];
+
+                // Check email in users table
+                if ($social->checkEmailOfUser($email)) {
+
+                    $userInfo = $social->getUserInfoWhereEmail($email);
+
+                    if ($userInfo) {
+
+                        if (Auth::login($userInfo)) {
+
+                            // Store user info to social networks table
+                            $fieldsSocial = array(
+                                'user_id' => $userInfo->id,
+                                'social_id' => $payload['sub'],
+                                'type' => 'google'
+                            );
+
+                            $social->storeAccountSocial($fieldsSocial);
+
+                            $user = Auth::user();
+
+                            try {
+
+                                $token = JWTAuth::customClaims(['verified' => $user->verified])->fromUser($user);
+
+                            }catch (JWTException $e) {
+
+                                return $this->respondInternalError('Login failed.');
+
+                            }
+
+                            return $this->respondCreated(compact('token'), 'Login success.');
+
+                        }
+
+                    }
+
+                    return $this->respondInternalError('Login failed.');
+
+                }else {
+
+                    $fields = array(
+                        'name' => $payload['name'],
+                        'display_name' => $payload['name'],
+                        'email' => $payload['email'],
+                        'password' => ''
+                    );
+
+                    // Save to users table
+                    $resultUsers = $user->storeSocial($fields);
+
+                    if ($resultUsers) {
+
+                        $credentials = $user->rewriteCredentialsSocial($fields);
+
+                        Auth::attempt($credentials);
+
+                        if (!Auth::user()) {
+                            return $this->respondInternalError('Login failed.');
+                        }
+
+                        $user = Auth::user();
+
+                        $fieldsSocial = array(
+                            'user_id' => $user->id,
+                            'social_id' => $payload['sub'],
+                            'type' => 'google'
+                        );
+
+                        // Save to social networks table
+                        if (!$social->storeAccountSocial($fieldsSocial)) {
+                            return $this->respondInternalError('Login failed.');
+                        }
+
+                        try {
+
+                            $token = JWTAuth::customClaims(['verified' => $user->verified])->fromUser($user);
+
+                        }catch (JWTException $e) {
+
+                            return $this->respondInternalError('Login failed.');
+
+                        }
+
+                        return $this->respondCreated(compact('token'), 'Login success.');
+
+                    }
+
+                }
+
+            }
+
+        }catch (\Exception $e) {
+
+            return $this->respondInternalError('Login failed.');
+
+        }
+
+    }
+
+    public function create(CreateUserAccountRequest $request, User $user)
+    {
         // Grab credentials from the request
 
         $fields = $request->only('name', 'display_name', 'email', 'password', 'password_confirmation');
@@ -119,11 +442,10 @@ class AuthController extends ApiController {
         }
 
         return $this->respondInternalError('It was not possible to create the account.');
-
     }
 
-    public function refresh() {
-
+    public function refresh()
+    {
         try{
             $token = JWTAuth::getToken();
 
@@ -135,11 +457,10 @@ class AuthController extends ApiController {
         }
 
         return $this->sendResponse(compact('token'));
-
     }
 
-    public function currentUser(Request $request, User $user) {
-
+    public function currentUser(Request $request, User $user)
+    {
         $userId = $request->user()->id;
 
         $user = $user->with('community')->find($userId);
@@ -147,14 +468,15 @@ class AuthController extends ApiController {
         $response = $this->processItem($user, new AuthUserTransformer, 'user');
 
         return $response;
-
     }
 
     /**
      * Helper method used by the ThrottlesLogins trait to construct a unique request key
      * @return string The login key used as the username
      */
-    protected function loginUsername() {
+    protected function loginUsername()
+    {
         return $this->username;
     }
+
 }

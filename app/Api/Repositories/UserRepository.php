@@ -42,4 +42,10 @@ class UserRepository implements UserRepositoryInterface
         ]);
     }
 
+    public function getUsers()
+    {
+        $users = $this->user->where('deleted', '!=', 1);
+        return $users;
+    }
+
 }

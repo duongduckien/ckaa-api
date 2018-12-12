@@ -60,4 +60,14 @@ class UserController extends ApiController
 
     }
 
+    public function get()
+    {
+
+        $users = $this->userRepository->getUsers();
+        return $this->respondWithArray();
+
+    }
+
+
+
 }
