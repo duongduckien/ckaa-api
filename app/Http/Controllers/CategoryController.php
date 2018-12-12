@@ -46,8 +46,8 @@ class CategoryController extends ApiController
         if ($this->categoryRepository->getCategoryById($id)) {
 
             try {
-                $this->userRepository->removeUser($id);
-                return $this->respondSuccess('User deleted successfully!');
+                $this->categoryRepository->removeCategory($id);
+                return $this->respondSuccess('Category deleted successfully!');
             }
             catch (\Exception $e) {
                 return $this->respondNotFound("Something went wrong!");
@@ -55,7 +55,7 @@ class CategoryController extends ApiController
 
         }
 
-        return $this->respondNotFound("User doesn't exist!");
+        return $this->respondNotFound("Category doesn't exist!");
 
     }
 
@@ -74,6 +74,36 @@ class CategoryController extends ApiController
 
     }
 
+    public function get($id)
+    {
 
+        $category = $this->categoryRepository->getCategoryById($id);
+
+        if (!$category) {
+            return $this->respondNotFound('The category was not found');
+        }
+
+        $response = $this->processItem($category, new CategoryTransformer);
+
+        return $response;
+
+    }
+
+    public function edit($id, CategoryRequest $request)
+    {
+
+        $data = [
+            "name" => $request->get('name')
+        ];
+
+        $result = $this->categoryRepository->updateCategory($id, $data);
+
+        if ($result) {
+            return $this->respondSuccess('Category updated successfully');
+        }
+
+        return $this->respondInternalError('An error ocurred while update category');
+
+    }
 
 }

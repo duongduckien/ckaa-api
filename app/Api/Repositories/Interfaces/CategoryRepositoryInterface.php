@@ -9,4 +9,8 @@ interface CategoryRepositoryInterface
     public function getCategoryById($id);
 
     public function getCategories();
+
+    public function removeCategory($id);
+
+    public function updateCategory($id, $data);
 }
